@@ -1,5 +1,5 @@
-// server.js — Batalha ao vivo: TikFinity -> Node.js (Render) -> Roblox
-// Node 18+. Dependência: npm i express
+// server.js - Batalha ao vivo: TikFinity -> Node.js (Render) -> Roblox
+// Funciona sem configurar nada. A variavel SECRET (senha) e OPCIONAL.
 const express = require("express");
 const app = express();
 app.use(express.json());
@@ -7,12 +7,12 @@ app.use(express.urlencoded({ extended: true }));
 
 // ===================== CONFIG =====================
 const PORT = process.env.PORT || 3000;
-const SECRET = process.env.SECRET || "";                       // defina no Render
+const SECRET = process.env.SECRET || "";                        // vazio = sem senha
 const MAX_HP = 500;
 const DMG_CHAT = 1;
 const DMG_GIFT = 10;
-const HITKILL_MIN_COINS = 10;                                  // > 10 coins = HitKill
-const KO_PAUSE_MS = Number(process.env.KO_PAUSE_MS) || 2500;   // tempo da animação de nocaute antes do próximo round
+const HITKILL_MIN_COINS = 10;                                   // acima de 10 coins = HitKill
+const KO_PAUSE_MS = Number(process.env.KO_PAUSE_MS) || 2500;    // pausa antes do proximo round
 const HITKILL_FALLBACK = process.env.HITKILL_FALLBACK || "random"; // random | left | right | underdog
 const USER_SIDE_TTL_MS = 30 * 60 * 1000;
 const MAX_USERS = 5000;
@@ -24,7 +24,7 @@ const MAX_GIFT_COUNT = 50;
 const SIDES = ["left", "right"];
 const other = (s) => (s === "left" ? "right" : "left");
 
-// ===================== ESTADO (única fonte da verdade) =====================
+// ===================== ESTADO =====================
 const state = {
   hp: { left: MAX_HP, right: MAX_HP },
   points: { left: 0, right: 0 },
@@ -35,7 +35,7 @@ const state = {
 let seq = 0;
 let koTimer = null;
 const events = [];
-const userSide = new Map(); // usuário -> { side, ts }
+const userSide = new Map();
 
 const snapshot = () => ({
   hp: { ...state.hp },
@@ -94,17 +94,16 @@ function hitKill(attacker, user) {
 }
 
 // ===================== UTIL =====================
-const p = (req, name, def = "") => String(req.query[name] ?? req.body?.[name] ?? def);
+const p = (req, name, def = "") => String(req.query[name] ?? (req.body && req.body[name]) ?? def);
 const norm = (s) => s.normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim().toLowerCase();
 
 function auth(req, res, next) {
   if (!SECRET) return next();
-  const key = req.query.key || req.body?.key || req.get("x-api-key");
+  const key = req.query.key || (req.body && req.body.key) || req.get("x-api-key");
   if (key !== SECRET) return res.status(401).json({ ok: false, error: "nao autorizado" });
   next();
 }
 
-// "PT", "pt", "PT!!" => PT | "pt kkk" => ignorado
 function parseChat(text) {
   const t = text.toUpperCase().replace(/[^A-Z]/g, "");
   if (t === "PT") return "left";
@@ -124,7 +123,6 @@ function resolveHitKillSide(req, user) {
   return SIDES[Math.floor(Math.random() * 2)];
 }
 
-// Agrupa hits de chat consecutivos do mesmo lado (evita centenas de eventos por poll)
 function compact(list) {
   const out = [];
   for (const e of list) {
@@ -142,7 +140,6 @@ function compact(list) {
 }
 
 // ===================== ROBLOX =====================
-// GET /state?key=XXX&since=123
 app.get("/state", auth, (req, res) => {
   const since = parseInt(req.query.since || "0", 10) || 0;
   res.set("Cache-Control", "no-store");
@@ -156,7 +153,6 @@ app.get("/state", auth, (req, res) => {
 });
 
 // ===================== TIKFINITY =====================
-// Chat: /chat?comment=PT&user=fulano
 app.all("/chat", auth, (req, res) => {
   const side = parseChat(p(req, "comment"));
   if (!side) return res.json({ ok: true, ignored: true });
@@ -166,7 +162,6 @@ app.all("/chat", auth, (req, res) => {
   res.json({ ok: true, ...snapshot() });
 });
 
-// Atalhos (uma ação do TikFinity por palavra)
 app.all("/pt", auth, (req, res) => {
   const user = p(req, "user", "anon");
   rememberSide(user, "left");
@@ -180,7 +175,6 @@ app.all("/pl", auth, (req, res) => {
   res.json({ ok: true, ...snapshot() });
 });
 
-// Presentes: /gift?name=Rose&coins=1&user=fulano&count=1
 app.all("/gift", auth, (req, res) => {
   const name = norm(p(req, "name"));
   const coins = Number(p(req, "coins", "0")) || 0;
@@ -193,17 +187,16 @@ app.all("/gift", auth, (req, res) => {
     return res.json({ ok: true, hitkill: done, side, ...snapshot() });
   }
   if (name === "rose" || name === "rosa") {
-    applyDamage("left", DMG_GIFT * count, "gift", user);   // Rosa -> Lula bate no Bolsonaro
+    applyDamage("left", DMG_GIFT * count, "gift", user);
     return res.json({ ok: true, ...snapshot() });
   }
   if (name === "gg") {
-    applyDamage("right", DMG_GIFT * count, "gift", user);  // GG -> Bolsonaro bate no Lula
+    applyDamage("right", DMG_GIFT * count, "gift", user);
     return res.json({ ok: true, ...snapshot() });
   }
   res.json({ ok: true, ignored: true });
 });
 
-// Rotas fixas (se o TikFinity não enviar o nome do presente dinamicamente)
 app.all("/rose", auth, (req, res) => { applyDamage("left", DMG_GIFT, "gift", p(req, "user", "anon")); res.json({ ok: true, ...snapshot() }); });
 app.all("/gg", auth, (req, res) => { applyDamage("right", DMG_GIFT, "gift", p(req, "user", "anon")); res.json({ ok: true, ...snapshot() }); });
 app.all("/hitkill/:side", auth, (req, res) => {
@@ -213,7 +206,6 @@ app.all("/hitkill/:side", auth, (req, res) => {
 });
 
 // ===================== ADMIN =====================
-// Zera tudo (chame antes de começar a live)
 app.all("/reset", auth, (_req, res) => {
   clearTimeout(koTimer);
   state.hp = { left: MAX_HP, right: MAX_HP };
@@ -227,7 +219,37 @@ app.all("/reset", auth, (_req, res) => {
   res.json({ ok: true, ...snapshot() });
 });
 
-app.get("/health", (_req, res) => res.send("ok")); // UptimeRobot a cada 5 min
+app.get("/health", (_req, res) => res.send("ok"));
 app.get("/", (_req, res) => res.send("Batalha online"));
 
-app.listen(PORT, () => console.log(`Batalha rodando na porta ${PORT}`));
+// Painel de teste: abra /teste no navegador (se usar SECRET: /teste?key=SUASENHA)
+app.get("/teste", (req, res) => {
+  const key = req.query.key ? "?key=" + encodeURIComponent(String(req.query.key)) : "";
+  res.type("html").send(`<!doctype html><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Painel de teste</title>
+<style>
+body{font-family:sans-serif;max-width:480px;margin:20px auto;padding:0 12px}
+button{display:block;width:100%;padding:16px;margin:8px 0;font-size:18px;border:0;border-radius:10px;cursor:pointer}
+.l{background:#e74c3c;color:#fff}.r{background:#27ae60;color:#fff}.k{background:#f1c40f}.n{background:#ddd}
+pre{background:#111;color:#0f0;padding:10px;border-radius:8px;font-size:13px;white-space:pre-wrap}
+</style>
+<h2>Painel de teste</h2>
+<button class="l" onclick="go('/pt')">PT: Lula ataca (-1 no Bolsonaro)</button>
+<button class="r" onclick="go('/pl')">PL: Bolsonaro ataca (-1 no Lula)</button>
+<button class="l" onclick="go('/rose')">Rosa: Lula (-10 no Bolsonaro)</button>
+<button class="r" onclick="go('/gg')">GG: Bolsonaro (-10 no Lula)</button>
+<button class="k" onclick="go('/hitkill/left')">HitKill do Lula</button>
+<button class="k" onclick="go('/hitkill/right')">HitKill do Bolsonaro</button>
+<button class="n" onclick="go('/reset')">Zerar tudo (reset)</button>
+<pre id="o">Clique em um botao.</pre>
+<script>
+const K=${JSON.stringify(key)};
+async function go(path){
+  try{const r=await fetch(path+K);document.getElementById('o').textContent=JSON.stringify(await r.json(),null,2);}
+  catch(e){document.getElementById('o').textContent='Erro: '+e;}
+}
+</script>`);
+});
+
+app.listen(PORT, () => console.log("Batalha rodando na porta " + PORT));
