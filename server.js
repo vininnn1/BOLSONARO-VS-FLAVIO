@@ -199,6 +199,13 @@ app.all("/gift", auth, (req, res) => {
 
 app.all("/rose", auth, (req, res) => { applyDamage("left", DMG_GIFT, "gift", p(req, "user", "anon")); res.json({ ok: true, ...snapshot() }); });
 app.all("/gg", auth, (req, res) => { applyDamage("right", DMG_GIFT, "gift", p(req, "user", "anon")); res.json({ ok: true, ...snapshot() }); });
+// HitKill sem lado: usa o ultimo lado que o doador comentou (PT/PL); se nao souber, usa o fallback
+app.all("/hitkill", auth, (req, res) => {
+  const user = p(req, "user", "anon");
+  const side = resolveHitKillSide(req, user);
+  const done = hitKill(side, user);
+  res.json({ ok: true, hitkill: done, side, ...snapshot() });
+});
 app.all("/hitkill/:side", auth, (req, res) => {
   const side = req.params.side === "right" ? "right" : "left";
   hitKill(side, p(req, "user", "anon"));
