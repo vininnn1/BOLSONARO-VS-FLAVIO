@@ -104,11 +104,15 @@ function auth(req, res, next) {
   next();
 }
 
+// Aceita 13 / PT / LULA (esquerda) e 22 / PL / FLAVIO / BOLSONARO (direita),
+// em qualquer lugar do comentario ("13", "vai 13!!", "22 pra sempre"). Se citar os dois, ignora.
 function parseChat(text) {
-  const t = text.toUpperCase().replace(/[^A-Z]/g, "");
-  if (t === "PT") return "left";
-  if (t === "PL") return "right";
-  return null;
+  const t = " " + String(text).normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+    .toUpperCase().replace(/[^A-Z0-9]+/g, " ") + " ";
+  const left = /\s(13|PT|LULA)\s/.test(t);
+  const right = /\s(22|PL|FLAVIO|BOLSONARO)\s/.test(t);
+  if (left === right) return null;
+  return left ? "left" : "right";
 }
 
 function resolveHitKillSide(req, user) {
@@ -162,13 +166,13 @@ app.all("/chat", auth, (req, res) => {
   res.json({ ok: true, ...snapshot() });
 });
 
-app.all("/pt", auth, (req, res) => {
+app.all(["/pt", "/13"], auth, (req, res) => {
   const user = p(req, "user", "anon");
   rememberSide(user, "left");
   applyDamage("left", DMG_CHAT, "chat", user);
   res.json({ ok: true, ...snapshot() });
 });
-app.all("/pl", auth, (req, res) => {
+app.all(["/pl", "/22"], auth, (req, res) => {
   const user = p(req, "user", "anon");
   rememberSide(user, "right");
   applyDamage("right", DMG_CHAT, "chat", user);
@@ -242,8 +246,8 @@ button{display:block;width:100%;padding:16px;margin:8px 0;font-size:18px;border:
 pre{background:#111;color:#0f0;padding:10px;border-radius:8px;font-size:13px;white-space:pre-wrap}
 </style>
 <h2>Painel de teste</h2>
-<button class="l" onclick="go('/pt')">PT: Lula ataca (-1 no Bolsonaro)</button>
-<button class="r" onclick="go('/pl')">PL: Bolsonaro ataca (-1 no Lula)</button>
+<button class="l" onclick="go('/13')">13: Lula ataca (-1 no Bolsonaro)</button>
+<button class="r" onclick="go('/22')">22: Bolsonaro ataca (-1 no Lula)</button>
 <button class="l" onclick="go('/rose')">Rosa: Lula (-10 no Bolsonaro)</button>
 <button class="r" onclick="go('/gg')">GG: Bolsonaro (-10 no Lula)</button>
 <button class="k" onclick="go('/hitkill/left')">HitKill do Lula</button>
